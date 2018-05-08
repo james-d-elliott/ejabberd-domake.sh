@@ -1,0 +1,158 @@
+#!/bin/bash
+
+for L; do true; done
+
+SCRIPT_VERSION=1.0.0
+REDOWNLOAD=false
+BETA=false
+USER="ejabberd"
+GROUP="ejabberd"
+HELP=false
+DIRECTORY="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
+MAKE=true
+CLEAN=true
+INSTALL=true
+EXTDB=true
+
+function version {
+	echo "ejabberd domake version ${SCRIPT_VERSION}"
+}
+
+function usage {
+	echo "Usage: domake [OPTIONS]"
+	echo "       domake [OPTIONS] version"
+	echo
+}
+
+function options {
+	echo "Options:"
+	echo -e "\t-v version\tthe version to download and make, can also be the last parameter without option i.e. 17.07"
+	echo -e "\t-h\t\tshow help information like this menu"
+	echo -e "\t-r\t\tredownload and extract archive if folder exists"
+	echo -e "\t-u user\t\tname of the user to use as daemon user (default is ejabberd)"
+	echo -e "\t-g group\tname of the group to use as daemon user (default is ejabberd)"
+	echo -e "\t-b\t\tdownload a beta version"
+	echo -e "\t-d directory\tthe main directory to download the archive, extract it, and build it"
+	echo -e "\t-i\t\tdisable installing the built binaries"
+	echo -e "\t-c\t\tdisable cleaning the build directory"
+	echo -e "\t-m\t\tdisable all make functions"
+}
+
+function args {
+	echo "Version: ${VERSION}"
+	echo "Beta: ${BETA}"
+	echo "User: ${USER}"
+	echo "Group: ${GROUP}"
+	echo "Help: ${HELP}"
+	echo "Redownload: ${REDOWNLOAD}"
+	echo "Directory: ${DIRECTORY}"
+	echo "Clean: ${CLEAN}"
+	echo "Install: ${INSTALL}"
+}
+
+while getopts ":v:g:u:d:rbhicm" opt; do
+	case $opt in
+		c)
+			CLEAN=false
+			;;
+		i)
+			INSTALL=false
+			;;
+		m)
+			MAKE=false
+			;;
+		h)
+			HELP=true
+			break
+			;;
+		v)
+			VERSION="${OPTARG}"
+			;;
+		r)
+			REDOWNLOAD=true
+			;;
+		b)
+			BETA=true
+			;;
+		u)
+			USER="${OPTARG}"
+			;;
+		g)
+			GROUP="${OPTARG}"
+			;;
+		d)
+			DIRECTORY="${OPTARG}"
+			;;
+		\?)
+			echo "Invalid option: -${OPTARG}" >&2
+			echo
+			usage
+			options
+			exit 1
+			;;
+		:)
+			echo "Option requires an argument: -${OPTARG}" >&2
+			echo
+			usage
+			options
+			exit 2
+			;;
+	esac
+done
+
+if [ "$HELP" = true ]; then
+	version
+	usage
+	options
+	exit 0
+fi
+
+if [ -z ${VERSION+x} ]; then
+	if [[ $L =~ ^[0-9]{2}\.[0-9]{2}$ ]]; then
+		VERSION=$L
+	else
+		echo "Option is not optional: -v"
+		exit 3
+	fi
+fi
+
+if [ "${BETA}" = true ]; then
+        VER=$VERSION+"-beta"
+else
+        VER=$VERSION
+fi
+
+URI="https://www.process-one.net/downloads/ejabberd/${VER}/ejabberd-${VER}.tgz"
+
+FILE="${DIRECTORY}ejabberd-${VER}"
+
+groupadd $GROUP
+useradd -g $GROUP $USER -s /bin/sh
+apt install -y libwebp-dev libgd-dev libyaml-dev libexpat1-dev zlib1g-dev libghc-iconv-dev libssl-dev erlang erlang-redis-client build-essential git
+
+if [ ! -d $FILE ] || [ "${REDOWNLOAD}" = true ]; then
+	wget -O "${FILE}.tgz" $URI
+	wget -O "${FILE}.tgz.sum" "${URI}.sum"
+	sha256sum -c "${FILE}.tgz.sum" --status
+	if [ $? -ne 0 ]; then
+		echo "Invalid Checksum"
+		exit 4
+	fi
+	tar xfz "${FILE}.tgz"
+	rm ${FILE}.tgz
+	rm ${FILE}.tgz.sum
+fi
+
+if [ "${MAKE}" = true ]; then
+
+	cd $FILE
+	./configure --enable-user=$USER --enable-mysql --enable-new-sql-schema --enable-redis --enable-zlib --enable-iconv --enable-nif --enable-redis --enable-sip --enable-stun --enable-elixir
+
+	if [ "${CLEAN}" = true ]; then
+		make clean
+	fi
+	make
+	if [ "${INSTALL}" = true ]; then
+		make install
+	fi
+fi
